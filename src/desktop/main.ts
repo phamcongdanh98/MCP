@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { app, BrowserWindow, dialog, ipcMain, safeStorage } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell } from 'electron';
 
 import { ConnectionStore, type TunnelDraft } from './connection-store.js';
 import type { DesktopSettings } from './runtime.js';
@@ -88,6 +88,7 @@ ipcMain.handle('workspaceguard:choose-tunnel-client', async () => {
     : await dialog.showOpenDialog(options);
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
+ipcMain.handle('workspaceguard:open-chatgpt', () => shell.openExternal('https://chatgpt.com'));
 ipcMain.handle('workspaceguard:get-state', () => runtime.snapshot());
 ipcMain.handle('workspaceguard:get-connection', () => requireConnectionStore().load());
 ipcMain.handle('workspaceguard:start', async (_event, settings: unknown) => {

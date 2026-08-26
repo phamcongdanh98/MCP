@@ -70,6 +70,11 @@
         <p id="saved-key-status" class="hint">Chưa có Runtime API key đã lưu.</p>
         <div class="actions"><button id="connect-tunnel" class="primary" type="button" disabled>Kết nối Tunnel</button><button id="disconnect-tunnel" type="button" disabled>Ngắt Tunnel</button></div>
         <p id="tunnel-message" class="hint" aria-live="polite">Khởi động MCP trước khi kết nối Tunnel.</p>
+        <div class="chatgpt-only">
+          <strong>Chỉ dùng ChatGPT Web — không chạy hoặc dùng quota Codex.</strong>
+          <p class="hint">Khi Tunnel xanh, mở ChatGPT Web, tạo developer-mode app và chọn Tunnel này. Phần local chỉ chuyển tiếp tool call; không gọi model hay OpenAI API.</p>
+          <button id="open-chatgpt" type="button" disabled>Mở ChatGPT Web</button>
+        </div>
       </section>
 
       <section class="card" aria-labelledby="check-title">

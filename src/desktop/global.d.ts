@@ -6,6 +6,7 @@ declare global {
     workspaceGuard: {
       chooseWorkspace(): Promise<string | null>;
       chooseTunnelClient(): Promise<string | null>;
+      openChatGPT(): Promise<void>;
       getState(): Promise<DesktopRuntimeState>;
       getConnection(): Promise<TunnelPreferences & { hasApiKey: boolean }>;
       start(settings: DesktopSettings): Promise<DesktopRuntimeState>;

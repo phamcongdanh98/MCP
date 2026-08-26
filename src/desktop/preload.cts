@@ -6,6 +6,7 @@ import type { DesktopProbeResult, DesktopRuntimeState, DesktopSettings } from '.
 const api = {
   chooseWorkspace: (): Promise<string | null> => ipcRenderer.invoke('workspaceguard:choose-workspace'),
   chooseTunnelClient: (): Promise<string | null> => ipcRenderer.invoke('workspaceguard:choose-tunnel-client'),
+  openChatGPT: (): Promise<void> => ipcRenderer.invoke('workspaceguard:open-chatgpt'),
   getState: (): Promise<DesktopRuntimeState> => ipcRenderer.invoke('workspaceguard:get-state'),
   getConnection: (): Promise<TunnelPreferences & { hasApiKey: boolean }> => ipcRenderer.invoke('workspaceguard:get-connection'),
   start: (settings: DesktopSettings): Promise<DesktopRuntimeState> => ipcRenderer.invoke('workspaceguard:start', settings),

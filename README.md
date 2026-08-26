@@ -25,7 +25,7 @@ WorkspaceGuard MCP là MCP server cục bộ, đa nền tảng, cho phép ChatGP
 | Theo dõi | Log runtime | Audit JSONL có request ID, kết quả và thời lượng |
 | Giao thức | Parser HTTP/MCP tự triển khai | MCP TypeScript SDK v2 chính thức của dự án MCP |
 
-Ứng dụng có giao diện desktop Electron để chọn workspace, chọn mode, chọn command allowlist, khởi động/dừng server, kiểm tra MCP ngay trong app và kết nối Secure MCP Tunnel. Theo hướng FileMCP, app tạo token loopback mới theo từng phiên, giữ server ở `127.0.0.1`, quản lý vòng đời `tunnel-client`, và lưu Runtime API key bằng cơ chế mã hóa hệ điều hành (Keychain trên macOS khi khả dụng). Binary `tunnel-client` vẫn do người dùng tải từ OpenAI; dự án không đóng gói binary đó.
+Ứng dụng có giao diện desktop Electron để chọn workspace, chọn mode, chọn command allowlist, khởi động/dừng server, kiểm tra MCP ngay trong app và kết nối Secure MCP Tunnel. Theo hướng FileMCP, app tạo token loopback mới theo từng phiên, giữ server ở `127.0.0.1`, quản lý vòng đời `tunnel-client`, và lưu Runtime API key bằng cơ chế mã hóa hệ điều hành (Keychain trên macOS khi khả dụng). Binary `tunnel-client` vẫn do người dùng tải từ OpenAI; dự án không đóng gói binary đó. Runtime local và Tunnel không gọi Codex hoặc OpenAI model/API: dùng app với ChatGPT Web qua developer-mode app, nên không dùng quota Codex. Cuộc trò chuyện vẫn theo giới hạn của gói ChatGPT đang dùng.
 
 ## Yêu cầu
 
@@ -161,7 +161,8 @@ Trong app, sau khi MCP đã báo **Đang chạy**:
 2. Dán **Runtime API key**. Lần sau có thể để trống để dùng key đã lưu mã hóa.
 3. Nhập `tunnel-client` nếu binary đã nằm trong `PATH`, hoặc nhấn **Chọn file…** để chọn binary đã tải.
 4. Giữ profile mặc định, nhấn **Kết nối Tunnel**, đợi thông báo “sẵn sàng cho ChatGPT”.
-5. Nhấn **Ngắt Tunnel** nếu chỉ muốn ngắt ChatGPT; nhấn **Dừng** để dừng cả Tunnel lẫn MCP server.
+5. Dòng xanh “sẵn sàng cho ChatGPT” xác nhận phần local đã kết nối. Nhấn **Mở ChatGPT Web**; app này không mở hoặc gọi Codex.
+6. Nhấn **Ngắt Tunnel** nếu chỉ muốn ngắt ChatGPT; nhấn **Dừng** để dừng cả Tunnel lẫn MCP server.
 
 App thực hiện tương đương chuỗi `tunnel-client init --sample sample_mcp_remote_no_auth` → `doctor --explain` → `run`, với endpoint MCP `http://127.0.0.1:<cổng>/mcp`, health endpoint cục bộ và header token truyền bằng biến môi trường. Các profile tunnel nằm trong dữ liệu riêng của app, không trong workspace.
 

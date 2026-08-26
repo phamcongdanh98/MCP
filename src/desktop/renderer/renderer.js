@@ -21,6 +21,7 @@ const connectTunnel = document.querySelector('#connect-tunnel');
 const disconnectTunnel = document.querySelector('#disconnect-tunnel');
 const tunnelMessage = document.querySelector('#tunnel-message');
 const savedKeyStatus = document.querySelector('#saved-key-status');
+const openChatGPT = document.querySelector('#open-chatgpt');
 
 let workspace = '';
 let currentState = null;
@@ -56,6 +57,7 @@ function render(state) {
   const canConnectTunnel = state.status === 'running' && !tunnelActive;
   connectTunnel.disabled = !canConnectTunnel;
   disconnectTunnel.disabled = tunnel.status !== 'running';
+  openChatGPT.disabled = tunnel.status !== 'running';
   chooseTunnelClient.disabled = tunnelActive;
   tunnelId.disabled = tunnelActive;
   tunnelProfile.disabled = tunnelActive;
@@ -137,6 +139,14 @@ disconnectTunnel.addEventListener('click', async () => {
     tunnelMessage.textContent = error instanceof Error ? error.message : 'Không thể ngắt Tunnel.';
   } finally {
     if (currentState) render(currentState);
+  }
+});
+
+openChatGPT.addEventListener('click', async () => {
+  try {
+    await window.workspaceGuard.openChatGPT();
+  } catch (error) {
+    tunnelMessage.textContent = error instanceof Error ? error.message : 'Không thể mở ChatGPT Web.';
   }
 });
 
