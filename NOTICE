@@ -1,0 +1,13 @@
+WorkspaceGuard MCP
+Copyright 2026 WorkspaceGuard MCP contributors
+
+This project was designed after studying FileMCP by anhnv02:
+https://github.com/anhnv02/file-mcp
+
+FileMCP is licensed under the Apache License, Version 2.0. WorkspaceGuard MCP
+uses independently written code while retaining attribution for the architectural
+and security-design reference.
+
+The Model Context Protocol TypeScript SDK is distributed under its own license
+in the installed dependency packages. OpenAI tunnel-client is not included in
+this repository.
