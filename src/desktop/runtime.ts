@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { realpath, stat } from 'node:fs/promises';
+import { mkdir, realpath, stat } from 'node:fs/promises';
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { createServer } from 'node:net';
 import type { Readable } from 'node:stream';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -24,6 +25,25 @@ export interface DesktopRuntimeState {
   port: number | null;
   message: string;
   logs: string[];
+  tunnel: TunnelRuntimeState;
+}
+
+export type TunnelStatus = 'not-configured' | 'starting' | 'running' | 'failed';
+
+export interface TunnelRuntimeState {
+  status: TunnelStatus;
+  message: string;
+  healthUrl: string | null;
+}
+
+export interface TunnelLaunchConfig {
+  tunnelId: string;
+  runtimeApiKey: string;
+  tunnelClientPath: string;
+  profile: string;
+  profileDirectory: string;
+  /** Test-only prefix, used to run a fake tunnel-client under Node. */
+  tunnelClientArguments?: string[];
 }
 
 export interface DesktopProbeStep {
@@ -47,14 +67,19 @@ export interface RuntimeControllerOptions {
 const MAX_LOG_LINES = 250;
 const MAX_LOG_LINE_LENGTH = 1_000;
 const START_TIMEOUT_MS = 5_000;
+const TUNNEL_START_TIMEOUT_MS = 12_000;
+const COMMAND_TIMEOUT_MS = 30_000;
 type ServerChild = ChildProcessByStdio<null, Readable, Readable>;
 
 function initialState(): DesktopRuntimeState {
-  return { status: 'stopped', root: null, mode: null, port: null, message: 'Chưa chạy', logs: [] };
+  return {
+    status: 'stopped', root: null, mode: null, port: null, message: 'Chưa chạy', logs: [],
+    tunnel: { status: 'not-configured', message: 'Chưa kết nối ChatGPT', healthUrl: null },
+  };
 }
 
 function cloneState(state: DesktopRuntimeState): DesktopRuntimeState {
-  return { ...state, logs: [...state.logs] };
+  return { ...state, logs: [...state.logs], tunnel: { ...state.tunnel } };
 }
 
 function normalizeCommands(commands: readonly string[]): string[] {
@@ -87,6 +112,7 @@ export class DesktopRuntimeController extends EventEmitter {
   private readonly nodeArguments: string[];
   private readonly environment: NodeJS.ProcessEnv;
   private process: ServerChild | null = null;
+  private tunnelProcess: ServerChild | null = null;
   private httpToken: string | null = null;
   private state = initialState();
   private stopping = false;
@@ -117,8 +143,13 @@ export class DesktopRuntimeController extends EventEmitter {
     this.publish();
   }
 
-  private setState(next: Omit<DesktopRuntimeState, 'logs'>): void {
-    this.state = { ...next, logs: this.state.logs };
+  private setState(next: Omit<DesktopRuntimeState, 'logs' | 'tunnel'>): void {
+    this.state = { ...next, logs: this.state.logs, tunnel: this.state.tunnel };
+    this.publish();
+  }
+
+  private setTunnel(next: TunnelRuntimeState): void {
+    this.state = { ...this.state, tunnel: next };
     this.publish();
   }
 
@@ -143,7 +174,10 @@ export class DesktopRuntimeController extends EventEmitter {
   async start(input: DesktopSettings): Promise<DesktopRuntimeState> {
     await this.stop();
     const settings = await validateDesktopSettings(input);
-    this.state = { status: 'starting', root: settings.root, mode: settings.mode, port: settings.port, message: 'Đang khởi động…', logs: [] };
+    this.state = {
+      status: 'starting', root: settings.root, mode: settings.mode, port: settings.port, message: 'Đang khởi động…', logs: [],
+      tunnel: { status: 'not-configured', message: 'Chưa kết nối ChatGPT', healthUrl: null },
+    };
     this.publish();
 
     const token = randomBytes(32).toString('hex');
@@ -193,21 +227,191 @@ export class DesktopRuntimeController extends EventEmitter {
     }
   }
 
+  private redactTunnelOutput(value: string, secrets: readonly string[]): string {
+    return secrets.filter(Boolean).reduce((result, secret) => result.split(secret).join('[REDACTED]'), value);
+  }
+
+  private tunnelEnvironment(apiKey: string, localToken: string): NodeJS.ProcessEnv {
+    const environment: NodeJS.ProcessEnv = {
+      CONTROL_PLANE_API_KEY: apiKey,
+      WORKSPACE_MCP_TOKEN: localToken,
+      MCP_EXTRA_HEADERS: 'X-Workspace-MCP-Token: env:WORKSPACE_MCP_TOKEN',
+      MCP_DISCOVERY_EXTRA_HEADERS: 'X-Workspace-MCP-Token: env:WORKSPACE_MCP_TOKEN',
+    };
+    for (const name of ['PATH', 'HOME', 'LANG', 'LC_ALL', 'HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'] as const) {
+      if (process.env[name]) environment[name] = process.env[name];
+    }
+    const noProxy = new Set((process.env.NO_PROXY ?? process.env.no_proxy ?? '').split(',').map((value) => value.trim()).filter(Boolean));
+    noProxy.add('127.0.0.1');
+    noProxy.add('localhost');
+    noProxy.add('[::1]');
+    environment.NO_PROXY = [...noProxy].join(',');
+    environment.no_proxy = environment.NO_PROXY;
+    return environment;
+  }
+
+  private async availableLoopbackPort(): Promise<number> {
+    const listener = createServer();
+    await new Promise<void>((resolve, reject) => {
+      listener.once('error', reject);
+      listener.listen(0, '127.0.0.1', () => resolve());
+    });
+    const address = listener.address();
+    await new Promise<void>((resolve) => listener.close(() => resolve()));
+    if (!address || typeof address === 'string') throw new Error('Không thể chọn cổng health cục bộ cho tunnel.');
+    return address.port;
+  }
+
+  private async runTunnelCommand(
+    program: string,
+    arguments_: string[],
+    environment: NodeJS.ProcessEnv,
+    secrets: readonly string[],
+  ): Promise<void> {
+    this.appendLog(`[tunnel] ${arguments_[0] ?? 'command'}…`);
+    const child = spawn(program, arguments_, { env: environment, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    child.stdout.on('data', (data: Buffer) => this.appendLog(this.redactTunnelOutput(data.toString('utf8'), secrets)));
+    child.stderr.on('data', (data: Buffer) => this.appendLog(this.redactTunnelOutput(data.toString('utf8'), secrets)));
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error(`tunnel-client ${arguments_[0] ?? 'command'} quá thời gian chờ.`));
+      }, COMMAND_TIMEOUT_MS);
+      child.once('error', (error) => {
+        clearTimeout(timeout);
+        reject(new Error(`Không thể chạy tunnel-client: ${error.message}`));
+      });
+      child.once('close', (code) => {
+        clearTimeout(timeout);
+        if (code === 0) resolve();
+        else reject(new Error(`tunnel-client ${arguments_[0] ?? 'command'} thất bại (mã ${code ?? 'không rõ'}).`));
+      });
+    });
+  }
+
+  private async waitForTunnelReady(healthUrl: string, child: ServerChild): Promise<void> {
+    const deadline = Date.now() + TUNNEL_START_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error('tunnel-client đã dừng trước khi sẵn sàng.');
+      try {
+        const response = await fetch(`${healthUrl}/readyz`, { signal: AbortSignal.timeout(700) });
+        if (response.ok) return;
+      } catch {
+        // The long-lived tunnel process may need time to authenticate and begin polling.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    throw new Error('Tunnel chưa sẵn sàng sau 12 giây. Hãy xem log và kiểm tra Tunnel ID/API key.');
+  }
+
+  private async stopTunnel(): Promise<void> {
+    const child = this.tunnelProcess;
+    if (!child) {
+      if (this.state.tunnel.status !== 'not-configured') {
+        this.setTunnel({ status: 'not-configured', message: 'Tunnel đã dừng', healthUrl: null });
+      }
+      return;
+    }
+    this.tunnelProcess = null;
+    if (child.exitCode !== null) {
+      this.setTunnel({ status: 'not-configured', message: 'Tunnel đã dừng', healthUrl: null });
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      const forceStop = setTimeout(() => {
+        if (child.exitCode === null) child.kill('SIGKILL');
+      }, 3_000);
+      child.once('exit', () => {
+        clearTimeout(forceStop);
+        resolve();
+      });
+      child.kill('SIGINT');
+    });
+    this.setTunnel({ status: 'not-configured', message: 'Tunnel đã dừng', healthUrl: null });
+  }
+
+  async connectTunnel(input: TunnelLaunchConfig): Promise<DesktopRuntimeState> {
+    const { root, mode, port } = this.state;
+    const localToken = this.httpToken;
+    if (this.state.status !== 'running' || !root || !mode || !port || !localToken) {
+      throw new Error('Hãy khởi động MCP server trước khi kết nối Tunnel.');
+    }
+    if (!/^tunnel_[a-z0-9]{32}$/.test(input.tunnelId)) throw new Error('Tunnel ID không hợp lệ.');
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(input.profile)) throw new Error('Profile tunnel không hợp lệ.');
+    if (!input.runtimeApiKey.trim()) throw new Error('Runtime API key không được để trống.');
+    if (!input.tunnelClientPath.trim()) throw new Error('Hãy nhập đường dẫn tunnel-client.');
+
+    await this.stopTunnel();
+    await mkdir(input.profileDirectory, { recursive: true, mode: 0o700 });
+    const healthPort = await this.availableLoopbackPort();
+    const healthUrl = `http://127.0.0.1:${healthPort}`;
+    const environment = this.tunnelEnvironment(input.runtimeApiKey, localToken);
+    const secrets = [input.runtimeApiKey, localToken];
+    const prefix = input.tunnelClientArguments ?? [];
+    const profileArguments = ['--profile', input.profile, '--profile-dir', input.profileDirectory, '--health-listen-addr', `127.0.0.1:${healthPort}`];
+    this.setTunnel({ status: 'starting', message: 'Đang cấu hình Secure MCP Tunnel…', healthUrl });
+
+    try {
+      await this.runTunnelCommand(input.tunnelClientPath, [
+        ...prefix,
+        'init', '--sample', 'sample_mcp_remote_no_auth', '--force',
+        '--tunnel-id', input.tunnelId,
+        '--mcp-server-url', `http://127.0.0.1:${port}/mcp`,
+        ...profileArguments,
+      ], environment, secrets);
+      await this.runTunnelCommand(input.tunnelClientPath, [...prefix, 'doctor', ...profileArguments, '--explain'], environment, secrets);
+
+      const child = spawn(input.tunnelClientPath, [...prefix, 'run', ...profileArguments], {
+        env: environment,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      this.tunnelProcess = child;
+      child.stdout.on('data', (data: Buffer) => this.appendLog(this.redactTunnelOutput(data.toString('utf8'), secrets)));
+      child.stderr.on('data', (data: Buffer) => this.appendLog(this.redactTunnelOutput(data.toString('utf8'), secrets)));
+      child.on('error', (error) => this.appendLog(`Không thể chạy tunnel-client: ${error.message}`));
+      child.on('exit', (code, signal) => {
+        if (this.tunnelProcess !== child) return;
+        this.tunnelProcess = null;
+        this.setTunnel({
+          status: 'failed', healthUrl: null,
+          message: `Tunnel đã dừng (${signal ?? `mã ${code ?? 'không rõ'}`}).`,
+        });
+      });
+      await this.waitForTunnelReady(healthUrl, child);
+      this.setTunnel({ status: 'running', message: 'Tunnel đã kết nối và sẵn sàng cho ChatGPT', healthUrl });
+      return this.snapshot();
+    } catch (error) {
+      await this.stopTunnel();
+      const message = error instanceof Error ? error.message : 'Không thể kết nối Secure MCP Tunnel.';
+      this.setTunnel({ status: 'failed', message, healthUrl: null });
+      throw error;
+    }
+  }
+
+  async disconnectTunnel(): Promise<DesktopRuntimeState> {
+    await this.stopTunnel();
+    return this.snapshot();
+  }
+
   async stop(): Promise<DesktopRuntimeState> {
+    await this.stopTunnel();
     const child = this.process;
     if (!child) return this.snapshot();
     this.stopping = true;
     try {
-      await new Promise<void>((resolve) => {
-        const forceStop = setTimeout(() => {
-          if (child.exitCode === null) child.kill('SIGKILL');
-        }, 3_000);
-        child.once('exit', () => {
-          clearTimeout(forceStop);
-          resolve();
+      if (child.exitCode === null) {
+        await new Promise<void>((resolve) => {
+          const forceStop = setTimeout(() => {
+            if (child.exitCode === null) child.kill('SIGKILL');
+          }, 3_000);
+          child.once('exit', () => {
+            clearTimeout(forceStop);
+            resolve();
+          });
+          child.kill('SIGINT');
         });
-        child.kill('SIGINT');
-      });
+      }
     } finally {
       this.process = null;
       this.httpToken = null;

@@ -59,8 +59,23 @@ test('desktop controller starts the real MCP server and stops it', async (contex
   assert.equal(probe.passed, true);
   assert.ok(probe.steps.some((step) => step.name === 'Khám phá tool' && step.status === 'passed'));
 
+  const connected = await controller.connectTunnel({
+    tunnelId: 'tunnel_0123456789abcdef0123456789abcdef',
+    runtimeApiKey: 'test_runtime_api_key_1234567890',
+    tunnelClientPath: process.execPath,
+    tunnelClientArguments: [path.resolve('tests/fixtures/fake-tunnel-client.mjs')],
+    profile: 'desktop-runtime-test',
+    profileDirectory: path.join(root, '.tunnel-profiles'),
+  });
+  assert.equal(connected.tunnel.status, 'running');
+  assert.ok(connected.tunnel.healthUrl);
+  const tunnelHealth = await fetch(`${connected.tunnel.healthUrl}/readyz`);
+  assert.equal(tunnelHealth.ok, true);
+  assert.equal(connected.logs.join('\n').includes('test_runtime_api_key_1234567890'), false);
+
   const stopped = await controller.stop();
   assert.equal(stopped.status, 'stopped');
+  assert.equal(stopped.tunnel.status, 'not-configured');
 });
 
 test('desktop MCP probe verifies write, trash, and an allowlisted command', async (context) => {

@@ -56,8 +56,24 @@
         <p id="message" class="hint" aria-live="polite">Chọn thư mục trước, sau đó khởi động.</p>
       </section>
 
+      <section class="card" aria-labelledby="tunnel-title">
+        <h2 id="tunnel-title">4. Kết nối ChatGPT qua Secure MCP Tunnel</h2>
+        <p class="hint">Tunnel giữ MCP ở localhost và tạo kết nối HTTPS đi ra ngoài. Runtime API key được mã hóa bởi hệ điều hành; không được hiển thị lại hoặc đưa vào log.</p>
+        <div class="form-grid">
+          <label>Tunnel ID <input id="tunnel-id" type="text" placeholder="tunnel_..." autocomplete="off" spellcheck="false"></label>
+          <label>Profile <input id="tunnel-profile" type="text" value="workspaceguard-local" autocomplete="off" spellcheck="false"></label>
+          <label class="wide">Runtime API key <input id="tunnel-api-key" type="password" placeholder="Nhập lần đầu hoặc để trống để dùng key đã lưu" autocomplete="off" spellcheck="false"></label>
+          <label class="wide">Đường dẫn tunnel-client
+            <span class="input-action"><input id="tunnel-client-path" type="text" value="tunnel-client" autocomplete="off" spellcheck="false"><button id="choose-tunnel-client" type="button">Chọn file…</button></span>
+          </label>
+        </div>
+        <p id="saved-key-status" class="hint">Chưa có Runtime API key đã lưu.</p>
+        <div class="actions"><button id="connect-tunnel" class="primary" type="button" disabled>Kết nối Tunnel</button><button id="disconnect-tunnel" type="button" disabled>Ngắt Tunnel</button></div>
+        <p id="tunnel-message" class="hint" aria-live="polite">Khởi động MCP trước khi kết nối Tunnel.</p>
+      </section>
+
       <section class="card" aria-labelledby="check-title">
-        <h2 id="check-title">4. Kiểm tra MCP thật</h2>
+        <h2 id="check-title">5. Kiểm tra MCP thật</h2>
         <p class="hint">App sẽ kết nối MCP client thật vào server vừa chạy. Ở mode ghi, nó tạo một file tên ngẫu nhiên, đọc lại, rồi chuyển file đó vào trash có thể khôi phục.</p>
         <label id="write-check-warning" class="warning check-warning" hidden><input id="confirm-write-check" type="checkbox"> Tôi đồng ý cho kiểm tra tạo và chuyển một file test vào trash của workspace.</label>
         <div class="actions"><button id="run-mcp-check" type="button" disabled>Chạy kiểm tra MCP</button></div>

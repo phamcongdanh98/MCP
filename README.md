@@ -25,7 +25,7 @@ WorkspaceGuard MCP là MCP server cục bộ, đa nền tảng, cho phép ChatGP
 | Theo dõi | Log runtime | Audit JSONL có request ID, kết quả và thời lượng |
 | Giao thức | Parser HTTP/MCP tự triển khai | MCP TypeScript SDK v2 chính thức của dự án MCP |
 
-Ứng dụng đã có giao diện desktop Electron để chọn workspace, chọn mode, chọn command allowlist, khởi động/dừng server và xem log cục bộ. Bản phát triển này chưa có Keychain/Credential Manager, Secure MCP Tunnel trong giao diện, ký/notarize app hoặc installer; API key tunnel vẫn phải cấu hình ngoài app.
+Ứng dụng có giao diện desktop Electron để chọn workspace, chọn mode, chọn command allowlist, khởi động/dừng server, kiểm tra MCP ngay trong app và kết nối Secure MCP Tunnel. Theo hướng FileMCP, app tạo token loopback mới theo từng phiên, giữ server ở `127.0.0.1`, quản lý vòng đời `tunnel-client`, và lưu Runtime API key bằng cơ chế mã hóa hệ điều hành (Keychain trên macOS khi khả dụng). Binary `tunnel-client` vẫn do người dùng tải từ OpenAI; dự án không đóng gói binary đó.
 
 ## Yêu cầu
 
@@ -63,9 +63,9 @@ Trong cửa sổ **WorkspaceGuard**:
 1. Nhấn **Chọn thư mục…** và chọn một workspace thử nghiệm.
 2. Giữ **Chỉ đọc** khi dùng lần đầu.
 3. Nhấn **Khởi động MCP**. Khi trạng thái chuyển thành **Đang chạy**, server HTTP đã sẵn sàng trên `127.0.0.1:<cổng>`.
-4. Nhấn **Dừng** khi xong. Đóng ứng dụng cũng dừng server.
+4. Nhấn **Dừng** khi xong. Đóng ứng dụng cũng dừng cả server lẫn Tunnel.
 
-Giao diện không hiển thị hoặc lưu token HTTP; token được tạo mới trong main process mỗi lần khởi động. Nó chưa tự cấu hình Secure MCP Tunnel/ChatGPT — phần đó vẫn thực hiện theo Bước 7 bên dưới.
+Giao diện không hiển thị hoặc lưu token HTTP; token được tạo mới trong main process mỗi lần khởi động.
 
 ### Kiểm tra toàn bộ MCP ngay trong giao diện
 
@@ -151,26 +151,21 @@ Ví dụ input tool:
 
 `run_command` không dùng shell, nhưng **không phải OS sandbox**. `node`, `npm`, Python hoặc một executable được phép vẫn có thể đọc/ghi ngoài workspace, dùng mạng và chạy process khác với quyền của tài khoản hiện tại. Chỉ dùng command mode với workspace và workflow đáng tin cậy.
 
-### Bước 7 — nối với OpenAI Secure MCP Tunnel
+### Bước 7 — nối ChatGPT bằng giao diện Secure MCP Tunnel
 
-Theo tài liệu OpenAI hiện hành, tunnel có thể gọi MCP server qua stdio; cách này tránh mở cả cổng loopback. Tải `tunnel-client` từ Platform tunnel settings hoặc bản phát hành chính thức mới nhất, rồi:
+Trên OpenAI Platform, tạo một Secure MCP Tunnel và runtime API key có quyền dùng tunnel. Tải `tunnel-client` phù hợp hệ điều hành. Không gửi Runtime API key cho Codex và không ghi nó vào `.env`, source hay Git.
 
-```bash
-export CONTROL_PLANE_API_KEY="sk-..."
+Trong app, sau khi MCP đã báo **Đang chạy**:
 
-tunnel-client init \
-  --sample sample_mcp_stdio_local \
-  --profile workspaceguard-local \
-  --tunnel-id tunnel_0123456789abcdef0123456789abcdef \
-  --mcp-command "node /Users/danhpham/Documents/ChatGPT/MCP/dist/index.js --root /tmp/workspaceguard-demo --transport stdio --mode read-only"
+1. Dán **Tunnel ID** có dạng `tunnel_...`.
+2. Dán **Runtime API key**. Lần sau có thể để trống để dùng key đã lưu mã hóa.
+3. Nhập `tunnel-client` nếu binary đã nằm trong `PATH`, hoặc nhấn **Chọn file…** để chọn binary đã tải.
+4. Giữ profile mặc định, nhấn **Kết nối Tunnel**, đợi thông báo “sẵn sàng cho ChatGPT”.
+5. Nhấn **Ngắt Tunnel** nếu chỉ muốn ngắt ChatGPT; nhấn **Dừng** để dừng cả Tunnel lẫn MCP server.
 
-tunnel-client doctor --profile workspaceguard-local --explain
-tunnel-client run --profile workspaceguard-local
-```
+App thực hiện tương đương chuỗi `tunnel-client init --sample sample_mcp_remote_no_auth` → `doctor --explain` → `run`, với endpoint MCP `http://127.0.0.1:<cổng>/mcp`, health endpoint cục bộ và header token truyền bằng biến môi trường. Các profile tunnel nằm trong dữ liệu riêng của app, không trong workspace.
 
-Giữ `tunnel-client run` hoạt động. Trong ChatGPT, bật Developer Mode/custom MCP app theo policy của workspace, tạo app mới, chọn kết nối **Tunnel**, chọn tunnel vừa tạo, chạy **Scan Tools**, sau đó thử `workspace_info`, `list_files` và `read_file` trước khi bật tool ghi.
-
-API key chỉ truyền qua biến môi trường của terminal; không đưa vào command profile, source code, log hoặc Git.
+Trong ChatGPT Web, bật Developer Mode/custom MCP app theo policy của workspace, tạo app mới, chọn kết nối **Tunnel**, chọn tunnel vừa tạo, chạy **Scan Tools**, sau đó thử `workspace_info`, `list_files` và `read_file` trước khi bật tool ghi. Nếu không thấy lựa chọn Tunnel, kiểm tra workspace đã được cấp quyền đọc và dùng Tunnel.
 
 ### Bước 8 — HTTP loopback (tùy chọn)
 

@@ -12,6 +12,15 @@ const runMcpCheck = document.querySelector('#run-mcp-check');
 const checkResults = document.querySelector('#check-results');
 const writeCheckWarning = document.querySelector('#write-check-warning');
 const confirmWriteCheck = document.querySelector('#confirm-write-check');
+const tunnelId = document.querySelector('#tunnel-id');
+const tunnelProfile = document.querySelector('#tunnel-profile');
+const tunnelApiKey = document.querySelector('#tunnel-api-key');
+const tunnelClientPath = document.querySelector('#tunnel-client-path');
+const chooseTunnelClient = document.querySelector('#choose-tunnel-client');
+const connectTunnel = document.querySelector('#connect-tunnel');
+const disconnectTunnel = document.querySelector('#disconnect-tunnel');
+const tunnelMessage = document.querySelector('#tunnel-message');
+const savedKeyStatus = document.querySelector('#saved-key-status');
 
 let workspace = '';
 let currentState = null;
@@ -41,6 +50,19 @@ function render(state) {
   confirmWriteCheck.disabled = !needsWriteApproval;
   if (!needsWriteApproval) confirmWriteCheck.checked = false;
   runMcpCheck.disabled = !canCheck || (needsWriteApproval && !confirmWriteCheck.checked);
+
+  const tunnel = state.tunnel;
+  const tunnelActive = tunnel.status === 'starting' || tunnel.status === 'running';
+  const canConnectTunnel = state.status === 'running' && !tunnelActive;
+  connectTunnel.disabled = !canConnectTunnel;
+  disconnectTunnel.disabled = tunnel.status !== 'running';
+  chooseTunnelClient.disabled = tunnelActive;
+  tunnelId.disabled = tunnelActive;
+  tunnelProfile.disabled = tunnelActive;
+  tunnelApiKey.disabled = tunnelActive;
+  tunnelClientPath.disabled = tunnelActive;
+  tunnelMessage.textContent = tunnel.message + (tunnel.healthUrl ? ` (${tunnel.healthUrl})` : '');
+  tunnelMessage.className = `hint tunnel-${tunnel.status}`;
 }
 
 function updateCommandOptions() {
@@ -80,6 +102,44 @@ stop.addEventListener('click', async () => {
   catch (error) { message.textContent = error instanceof Error ? error.message : 'Không thể dừng MCP server.'; }
 });
 
+chooseTunnelClient.addEventListener('click', async () => {
+  try {
+    const selected = await window.workspaceGuard.chooseTunnelClient();
+    if (selected) tunnelClientPath.value = selected;
+  } catch (error) {
+    tunnelMessage.textContent = error instanceof Error ? error.message : 'Không mở được hộp chọn tunnel-client.';
+  }
+});
+
+connectTunnel.addEventListener('click', async () => {
+  connectTunnel.disabled = true;
+  try {
+    await window.workspaceGuard.connectTunnel({
+      tunnelId: tunnelId.value,
+      tunnelClientPath: tunnelClientPath.value,
+      profile: tunnelProfile.value,
+      apiKey: tunnelApiKey.value,
+    });
+    tunnelApiKey.value = '';
+    savedKeyStatus.textContent = 'Runtime API key đã được lưu mã hóa bởi hệ điều hành.';
+  } catch (error) {
+    tunnelMessage.textContent = error instanceof Error ? error.message : 'Không thể kết nối Secure MCP Tunnel.';
+  } finally {
+    if (currentState) render(currentState);
+  }
+});
+
+disconnectTunnel.addEventListener('click', async () => {
+  disconnectTunnel.disabled = true;
+  try {
+    await window.workspaceGuard.disconnectTunnel();
+  } catch (error) {
+    tunnelMessage.textContent = error instanceof Error ? error.message : 'Không thể ngắt Tunnel.';
+  } finally {
+    if (currentState) render(currentState);
+  }
+});
+
 confirmWriteCheck.addEventListener('change', () => {
   if (!currentState) return;
   render(currentState);
@@ -107,4 +167,14 @@ runMcpCheck.addEventListener('click', async () => {
 
 window.workspaceGuard.onState(render);
 window.workspaceGuard.getState().then(render);
+window.workspaceGuard.getConnection().then((preferences) => {
+  tunnelId.value = preferences.tunnelId;
+  tunnelClientPath.value = preferences.tunnelClientPath;
+  tunnelProfile.value = preferences.profile;
+  savedKeyStatus.textContent = preferences.hasApiKey
+    ? 'Đã có Runtime API key lưu mã hóa bởi hệ điều hành. Để trống ô key nếu không muốn thay đổi.'
+    : 'Chưa có Runtime API key đã lưu.';
+}).catch((error) => {
+  savedKeyStatus.textContent = error instanceof Error ? error.message : 'Không thể đọc cấu hình tunnel.';
+});
 updateCommandOptions();
