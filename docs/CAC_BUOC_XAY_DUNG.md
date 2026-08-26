@@ -53,16 +53,15 @@ Tiêu chí hoàn tất: MCP client thật discover tool và gọi `read_file`, k
 6. CI gọi đúng `npm run verify` bằng install khóa cứng.
 7. Audit dependency và không đóng gói secret/build rác.
 
-## Giai đoạn 6 — desktop app, sau MVP
+## Giai đoạn 6 — desktop app
 
-Khuyến nghị Tauri hoặc native shell mỏng gọi cùng một core/package:
+Đã triển khai shell Electron mỏng gọi cùng core TypeScript. Giao diện không có quyền Node trực tiếp (`contextIsolation`, `sandbox`, `nodeIntegration: false`); mọi yêu cầu IPC được kiểm tra ở Electron main process, sau đó core MCP vẫn kiểm tra policy một lần nữa.
 
 - Folder picker và hiển thị canonical workspace.
-- Chọn mode; command allowlist editor.
-- Xem audit, trash và restore.
-- Quản lý tunnel process/health.
-- Lưu runtime API key bằng Keychain/Credential Manager.
-- Auto-update có ký, macOS notarization và Windows Authenticode.
+- Chọn mode; allowlist `git`, `node`, `npm`, `npx` khi dùng command mode.
+- Start/stop, loopback health và log runtime. Khi đóng app, app chờ dừng child process để không để lại server nền.
+- Token HTTP 256-bit được tạo per-run trong main process, không đi qua renderer hoặc settings.
+- Chưa có xem/khôi phục audit/trash, UI quản lý tunnel, Keychain/Credential Manager, ký/notarize hay installer. Dùng stdio tunnel ưu tiên khi cần nối ChatGPT.
 
 Không đưa secret vào settings JSON và không bundle một tunnel binary cũ vô thời hạn. Quy trình release phải xác minh checksum, license và cập nhật từ nguồn chính thức.
 

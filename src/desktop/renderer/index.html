@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; style-src 'self'; script-src 'self'; base-uri 'none'; form-action 'none'">
+    <title>WorkspaceGuard MCP</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">LOCAL MCP SERVER</p>
+          <h1>WorkspaceGuard</h1>
+          <p class="subhead">Kết nối một thư mục cục bộ với MCP, theo quyền bạn chọn.</p>
+        </div>
+        <div id="status" class="status stopped" role="status">● Chưa chạy</div>
+      </header>
+
+      <section class="card" aria-labelledby="workspace-title">
+        <h2 id="workspace-title">1. Chọn workspace</h2>
+        <div class="row">
+          <output id="workspace-path" class="path">Chưa chọn thư mục</output>
+          <button id="choose-workspace" type="button">Chọn thư mục…</button>
+        </div>
+        <p class="hint">MCP chỉ được quyền thao tác trong thư mục này. Hãy dùng một thư mục thử nghiệm khi mới bắt đầu.</p>
+      </section>
+
+      <section class="card" aria-labelledby="access-title">
+        <h2 id="access-title">2. Chọn quyền truy cập</h2>
+        <div class="mode-grid" role="radiogroup" aria-label="Quyền truy cập">
+          <label class="mode"><input type="radio" name="mode" value="read-only" checked><span><strong>Chỉ đọc</strong><small>Đọc file và Git</small></span></label>
+          <label class="mode"><input type="radio" name="mode" value="workspace-write"><span><strong>Đọc và ghi</strong><small>Ghi file, chuyển file vào trash</small></span></label>
+          <label class="mode"><input type="radio" name="mode" value="command"><span><strong>Chạy lệnh</strong><small>Thêm lệnh đã cho phép</small></span></label>
+        </div>
+        <div id="command-options" hidden>
+          <p class="warning">Chỉ bật khi bạn tin tưởng workflow. Lệnh chạy bằng quyền tài khoản macOS hiện tại.</p>
+          <div class="checks">
+            <label><input type="checkbox" value="git" checked> git</label>
+            <label><input type="checkbox" value="node" checked> node</label>
+            <label><input type="checkbox" value="npm" checked> npm</label>
+            <label><input type="checkbox" value="npx" checked> npx</label>
+          </div>
+        </div>
+      </section>
+
+      <section class="card compact" aria-labelledby="server-title">
+        <h2 id="server-title">3. Chạy server</h2>
+        <label class="port-label">Cổng cục bộ <input id="port" type="number" value="7331" min="1024" max="65535" inputmode="numeric"></label>
+        <div class="actions">
+          <button id="start" class="primary" type="button">Khởi động MCP</button>
+          <button id="stop" type="button" disabled>Dừng</button>
+        </div>
+        <p id="message" class="hint" aria-live="polite">Chọn thư mục trước, sau đó khởi động.</p>
+      </section>
+
+      <section class="card logs" aria-labelledby="logs-title">
+        <h2 id="logs-title">Nhật ký chạy</h2>
+        <pre id="logs">Chưa có nhật ký.</pre>
+      </section>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

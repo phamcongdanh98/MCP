@@ -25,7 +25,7 @@ WorkspaceGuard MCP là MCP server cục bộ, đa nền tảng, cho phép ChatGP
 | Theo dõi | Log runtime | Audit JSONL có request ID, kết quả và thời lượng |
 | Giao thức | Parser HTTP/MCP tự triển khai | MCP TypeScript SDK v2 chính thức của dự án MCP |
 
-Đổi lại, bản `0.1.0` chưa có GUI desktop, Keychain/Credential Manager, ký/notarize app hoặc installer. Đây là lựa chọn có chủ đích: kiểm chứng một core an toàn và dễ bảo trì trước, sau đó mới bọc bằng Tauri/native shell.
+Ứng dụng đã có giao diện desktop Electron để chọn workspace, chọn mode, chọn command allowlist, khởi động/dừng server và xem log cục bộ. Bản phát triển này chưa có Keychain/Credential Manager, Secure MCP Tunnel trong giao diện, ký/notarize app hoặc installer; API key tunnel vẫn phải cấu hình ngoài app.
 
 ## Yêu cầu
 
@@ -52,7 +52,22 @@ npm run verify
 
 Lệnh này chạy typecheck, unit/integration test, build production và semantic smoke test qua MCP stdio.
 
-### Bước 3 — build
+### Bước 3 — chạy giao diện desktop (cách dễ nhất)
+
+```bash
+npm run desktop
+```
+
+Trong cửa sổ **WorkspaceGuard**:
+
+1. Nhấn **Chọn thư mục…** và chọn một workspace thử nghiệm.
+2. Giữ **Chỉ đọc** khi dùng lần đầu.
+3. Nhấn **Khởi động MCP**. Khi trạng thái chuyển thành **Đang chạy**, server HTTP đã sẵn sàng trên `127.0.0.1:<cổng>`.
+4. Nhấn **Dừng** khi xong. Đóng ứng dụng cũng dừng server.
+
+Giao diện không hiển thị hoặc lưu token HTTP; token được tạo mới trong main process mỗi lần khởi động. Nó chưa tự cấu hình Secure MCP Tunnel/ChatGPT — phần đó vẫn thực hiện theo Bước 7 bên dưới.
+
+### Bước 4 — build core bằng terminal (tùy chọn)
 
 ```bash
 npm run build
@@ -64,7 +79,7 @@ Entry point production là:
 /Users/danhpham/Documents/ChatGPT/MCP/dist/index.js
 ```
 
-### Bước 4 — chọn workspace và mode
+### Bước 5 — chọn workspace và mode bằng terminal (tùy chọn)
 
 Nên bắt đầu với một thư mục thử nghiệm nhỏ:
 
@@ -81,7 +96,7 @@ Ba mode:
 
 Lưu ý: server vẫn ghi audit nội bộ vào `.workspaceguard/audit.jsonl` trong cả ba mode. “Read-only” mô tả các tool công khai, không phải filesystem sandbox của chính tiến trình server.
 
-### Bước 5A — chạy qua stdio (khuyến nghị)
+### Bước 6A — chạy qua stdio (khuyến nghị)
 
 ```bash
 node dist/index.js \
@@ -92,7 +107,7 @@ node dist/index.js \
 
 Terminal sẽ chờ MCP client gửi request qua stdin. Đây là hành vi đúng, không phải treo.
 
-### Bước 5B — bật quyền ghi
+### Bước 6B — bật quyền ghi
 
 ```bash
 node dist/index.js \
@@ -103,7 +118,7 @@ node dist/index.js \
 
 `trash_path` mặc định `dry_run=true`. Chỉ khi caller gửi `dry_run=false` thì path mới được chuyển vào trash.
 
-### Bước 5C — cho phép tự chạy lệnh terminal
+### Bước 6C — cho phép tự chạy lệnh terminal
 
 ```bash
 node dist/index.js \
@@ -126,7 +141,7 @@ Ví dụ input tool:
 
 `run_command` không dùng shell, nhưng **không phải OS sandbox**. `node`, `npm`, Python hoặc một executable được phép vẫn có thể đọc/ghi ngoài workspace, dùng mạng và chạy process khác với quyền của tài khoản hiện tại. Chỉ dùng command mode với workspace và workflow đáng tin cậy.
 
-### Bước 6 — nối với OpenAI Secure MCP Tunnel
+### Bước 7 — nối với OpenAI Secure MCP Tunnel
 
 Theo tài liệu OpenAI hiện hành, tunnel có thể gọi MCP server qua stdio; cách này tránh mở cả cổng loopback. Tải `tunnel-client` từ Platform tunnel settings hoặc bản phát hành chính thức mới nhất, rồi:
 
@@ -147,7 +162,7 @@ Giữ `tunnel-client run` hoạt động. Trong ChatGPT, bật Developer Mode/cu
 
 API key chỉ truyền qua biến môi trường của terminal; không đưa vào command profile, source code, log hoặc Git.
 
-### Bước 7 — HTTP loopback (tùy chọn)
+### Bước 8 — HTTP loopback (tùy chọn)
 
 ```bash
 export WORKSPACE_MCP_TOKEN="$(openssl rand -hex 32)"
@@ -218,6 +233,7 @@ src/
 ├── services/process.ts       # process limits + tree cleanup
 ├── tools.ts                  # MCP schemas, annotations, audit
 ├── server.ts                 # stdio + HTTP loopback
+├── desktop/                  # Electron main/preload + renderer an toàn
 └── index.ts                  # CLI entry
 tests/                        # unit, integration, MCP semantic smoke
 docs/                         # phân tích source và lộ trình
