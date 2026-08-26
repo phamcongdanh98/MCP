@@ -56,6 +56,14 @@
         <p id="message" class="hint" aria-live="polite">Chọn thư mục trước, sau đó khởi động.</p>
       </section>
 
+      <section class="card" aria-labelledby="check-title">
+        <h2 id="check-title">4. Kiểm tra MCP thật</h2>
+        <p class="hint">App sẽ kết nối MCP client thật vào server vừa chạy. Ở mode ghi, nó tạo một file tên ngẫu nhiên, đọc lại, rồi chuyển file đó vào trash có thể khôi phục.</p>
+        <label id="write-check-warning" class="warning check-warning" hidden><input id="confirm-write-check" type="checkbox"> Tôi đồng ý cho kiểm tra tạo và chuyển một file test vào trash của workspace.</label>
+        <div class="actions"><button id="run-mcp-check" type="button" disabled>Chạy kiểm tra MCP</button></div>
+        <ul id="check-results" class="check-results" aria-live="polite"><li>Khởi động server để bắt đầu kiểm tra.</li></ul>
+      </section>
+
       <section class="card logs" aria-labelledby="logs-title">
         <h2 id="logs-title">Nhật ký chạy</h2>
         <pre id="logs">Chưa có nhật ký.</pre>

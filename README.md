@@ -67,6 +67,16 @@ Trong cửa sổ **WorkspaceGuard**:
 
 Giao diện không hiển thị hoặc lưu token HTTP; token được tạo mới trong main process mỗi lần khởi động. Nó chưa tự cấu hình Secure MCP Tunnel/ChatGPT — phần đó vẫn thực hiện theo Bước 7 bên dưới.
 
+### Kiểm tra toàn bộ MCP ngay trong giao diện
+
+Sau khi server báo **Đang chạy**, nhấn **Chạy kiểm tra MCP**. Đây là MCP client thật trong Electron main process, không phải kiểm tra giả qua giao diện.
+
+- Với **Chỉ đọc**, app kiểm tra handshake HTTP MCP, khám phá tool, `workspace_info` và `list_files`.
+- Với **Đọc và ghi**, app kiểm tra thêm `write_file` → `read_file` → `trash_path`. Bạn phải tick xác nhận vì file thử tên ngẫu nhiên sẽ được chuyển vào `.workspaceguard/trash`.
+- Với **Chạy lệnh**, giữ tick `node` trong allowlist để app kiểm tra thêm `run_command` bằng `node --version`.
+
+Chọn một thư mục thử nghiệm riêng cho hai mode cuối. Kết quả từng bước hiện ngay trong phần kiểm tra của giao diện.
+
 ### Bước 4 — build core bằng terminal (tùy chọn)
 
 ```bash

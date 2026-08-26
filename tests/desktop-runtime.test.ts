@@ -55,6 +55,29 @@ test('desktop controller starts the real MCP server and stops it', async (contex
   const health = await fetch(`http://127.0.0.1:${port}/healthz`);
   assert.deepEqual(await health.json(), { status: 'ok', mode: 'read-only' });
 
+  const probe = await controller.runMcpProbe();
+  assert.equal(probe.passed, true);
+  assert.ok(probe.steps.some((step) => step.name === 'Khám phá tool' && step.status === 'passed'));
+
   const stopped = await controller.stop();
   assert.equal(stopped.status, 'stopped');
+});
+
+test('desktop MCP probe verifies write, trash, and an allowlisted command', async (context) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'workspaceguard-desktop-command-'));
+  const controller = new DesktopRuntimeController({
+    serverEntry: path.resolve('src/index.ts'),
+    nodeArguments: ['--import', path.resolve('node_modules/tsx/dist/loader.mjs')],
+  });
+  context.after(async () => {
+    await controller.stop();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  await controller.start({ root, mode: 'command', port: await availablePort(), allowedCommands: ['node'] });
+  const probe = await controller.runMcpProbe();
+  assert.equal(probe.passed, true);
+  assert.ok(probe.steps.some((step) => step.name === 'Ghi và đọc lại' && step.status === 'passed'));
+  assert.ok(probe.steps.some((step) => step.name === 'Trash có thể khôi phục' && step.status === 'passed'));
+  assert.ok(probe.steps.some((step) => step.name === 'Chạy lệnh allowlist' && step.status === 'passed'));
 });

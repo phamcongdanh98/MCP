@@ -71,6 +71,7 @@ ipcMain.handle('workspaceguard:start', async (_event, settings: unknown) => {
   return runtime.start(settings);
 });
 ipcMain.handle('workspaceguard:stop', () => runtime.stop());
+ipcMain.handle('workspaceguard:run-mcp-probe', () => runtime.runMcpProbe());
 
 app.whenReady().then(() => {
   createWindow();

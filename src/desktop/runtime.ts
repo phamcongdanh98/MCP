@@ -1,8 +1,10 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { realpath, stat } from 'node:fs/promises';
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import type { Readable } from 'node:stream';
+
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 import type { AccessMode } from '../config.js';
 
@@ -22,6 +24,17 @@ export interface DesktopRuntimeState {
   port: number | null;
   message: string;
   logs: string[];
+}
+
+export interface DesktopProbeStep {
+  name: string;
+  status: 'passed' | 'skipped' | 'failed';
+  detail: string;
+}
+
+export interface DesktopProbeResult {
+  passed: boolean;
+  steps: DesktopProbeStep[];
 }
 
 export interface RuntimeControllerOptions {
@@ -74,6 +87,7 @@ export class DesktopRuntimeController extends EventEmitter {
   private readonly nodeArguments: string[];
   private readonly environment: NodeJS.ProcessEnv;
   private process: ServerChild | null = null;
+  private httpToken: string | null = null;
   private state = initialState();
   private stopping = false;
 
@@ -133,6 +147,7 @@ export class DesktopRuntimeController extends EventEmitter {
     this.publish();
 
     const token = randomBytes(32).toString('hex');
+    this.httpToken = token;
     const arguments_ = [
       ...this.nodeArguments,
       this.serverEntry,
@@ -195,9 +210,104 @@ export class DesktopRuntimeController extends EventEmitter {
       });
     } finally {
       this.process = null;
+      this.httpToken = null;
       this.stopping = false;
       this.setState({ status: 'stopped', root: null, mode: null, port: null, message: 'Đã dừng' });
     }
     return this.snapshot();
+  }
+
+  async runMcpProbe(): Promise<DesktopProbeResult> {
+    const { status, mode, port } = this.state;
+    const token = this.httpToken;
+    if (status !== 'running' || !mode || !port || !token) {
+      throw new Error('Hãy khởi động MCP server trước khi chạy kiểm tra.');
+    }
+
+    const steps: DesktopProbeStep[] = [];
+    const pass = (name: string, detail: string): void => { steps.push({ name, status: 'passed', detail }); };
+    const skip = (name: string, detail: string): void => { steps.push({ name, status: 'skipped', detail }); };
+    const requireSuccess = (name: string, value: { isError?: boolean | undefined; structuredContent?: unknown | undefined }): unknown => {
+      if (value.isError) throw new Error(`${name} trả về lỗi.`);
+      return value.structuredContent;
+    };
+
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: { headers: { 'X-Workspace-MCP-Token': token } },
+    });
+    const client = new Client({ name: 'workspaceguard-desktop-check', version: '0.1.0' });
+    let temporaryFile: string | null = null;
+
+    try {
+      await client.connect(transport);
+      pass('Kết nối MCP', 'Handshake HTTP MCP thành công.');
+
+      const tools = await client.listTools();
+      const toolNames = new Set(tools.tools.map((tool) => tool.name));
+      if (!toolNames.has('workspace_info') || !toolNames.has('list_files')) {
+        throw new Error('Server không công bố đủ tool chỉ đọc cần thiết.');
+      }
+      pass('Khám phá tool', `${tools.tools.length} tool đang khả dụng theo mode đã chọn.`);
+
+      const info = requireSuccess('workspace_info', await client.callTool({ name: 'workspace_info', arguments: {} })) as { mode?: unknown };
+      if (info.mode !== mode) throw new Error('workspace_info trả về mode không khớp với giao diện.');
+      pass('Workspace policy', `Mode ${mode} được server xác nhận.`);
+
+      const files = requireSuccess('list_files', await client.callTool({ name: 'list_files', arguments: { subpath: '' } })) as { entries?: unknown };
+      if (!Array.isArray(files.entries)) throw new Error('list_files không trả về danh sách file hợp lệ.');
+      pass('Đọc workspace', `list_files đọc được ${files.entries.length} mục ở thư mục gốc.`);
+
+      if (mode === 'read-only') {
+        skip('Ghi và trash', 'Bỏ qua vì mode chỉ đọc.');
+        skip('Chạy lệnh', 'Bỏ qua vì mode chỉ đọc.');
+        return { passed: true, steps };
+      }
+
+      if (!toolNames.has('write_file') || !toolNames.has('trash_path')) {
+        throw new Error('Mode ghi không công bố đủ write_file và trash_path.');
+      }
+      temporaryFile = `workspaceguard-ui-test-${randomUUID()}.txt`;
+      const content = 'WorkspaceGuard MCP desktop check\n';
+      const write = requireSuccess('write_file', await client.callTool({
+        name: 'write_file', arguments: { relative_path: temporaryFile, content, dry_run: false },
+      })) as { dryRun?: unknown };
+      if (write.dryRun !== false) throw new Error('write_file không thực hiện ghi thật trong kiểm tra.');
+      const read = requireSuccess('read_file', await client.callTool({ name: 'read_file', arguments: { relative_path: temporaryFile } })) as { content?: unknown };
+      if (read.content !== content) throw new Error('Nội dung đọc lại không khớp nội dung vừa ghi.');
+      pass('Ghi và đọc lại', 'Tạo file kiểm tra ngẫu nhiên và xác minh nội dung thành công.');
+
+      const trash = requireSuccess('trash_path', await client.callTool({
+        name: 'trash_path', arguments: { relative_path: temporaryFile, dry_run: false },
+      })) as { dryRun?: unknown; trashPath?: unknown };
+      temporaryFile = null;
+      if (trash.dryRun !== false || typeof trash.trashPath !== 'string') throw new Error('trash_path không trả về vị trí khôi phục hợp lệ.');
+      pass('Trash có thể khôi phục', 'File kiểm tra đã được chuyển vào .workspaceguard/trash.');
+
+      if (mode !== 'command') {
+        skip('Chạy lệnh', 'Bỏ qua vì mode đọc và ghi không cho chạy lệnh.');
+        return { passed: true, steps };
+      }
+      if (!toolNames.has('run_command')) throw new Error('Mode command không công bố run_command.');
+      const command = requireSuccess('run_command', await client.callTool({
+        name: 'run_command', arguments: { program: 'node', args: ['--version'], cwd: '', timeout_seconds: 15 },
+      })) as { process?: { exitCode?: unknown; stdout?: unknown } };
+      if (command.process?.exitCode !== 0 || typeof command.process.stdout !== 'string' || !command.process.stdout.trim().startsWith('v')) {
+        throw new Error('node --version không hoàn tất thành công. Hãy bật allowlist node.');
+      }
+      pass('Chạy lệnh allowlist', `node --version trả về ${command.process.stdout.trim()}.`);
+      return { passed: true, steps };
+    } catch (error) {
+      steps.push({
+        name: 'Kiểm tra MCP',
+        status: 'failed',
+        detail: error instanceof Error ? error.message : 'Lỗi không xác định khi kiểm tra MCP.',
+      });
+      return { passed: false, steps };
+    } finally {
+      if (temporaryFile) {
+        await client.callTool({ name: 'trash_path', arguments: { relative_path: temporaryFile, dry_run: false } }).catch(() => undefined);
+      }
+      await client.close().catch(() => undefined);
+    }
   }
 }

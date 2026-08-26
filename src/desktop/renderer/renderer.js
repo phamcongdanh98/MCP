@@ -8,14 +8,20 @@ const logs = document.querySelector('#logs');
 const port = document.querySelector('#port');
 const commandOptions = document.querySelector('#command-options');
 const workspaceInput = document.querySelector('#workspace-input');
+const runMcpCheck = document.querySelector('#run-mcp-check');
+const checkResults = document.querySelector('#check-results');
+const writeCheckWarning = document.querySelector('#write-check-warning');
+const confirmWriteCheck = document.querySelector('#confirm-write-check');
 
 let workspace = '';
+let currentState = null;
 
 function selectedMode() {
   return document.querySelector('input[name="mode"]:checked').value;
 }
 
 function render(state) {
+  currentState = state;
   status.className = `status ${state.status}`;
   status.textContent = `● ${state.status === 'running' ? 'Đang chạy' : state.status === 'starting' ? 'Đang khởi động' : state.status === 'failed' ? 'Có lỗi' : 'Đã dừng'}`;
   message.textContent = state.message;
@@ -29,6 +35,12 @@ function render(state) {
   port.disabled = active;
   document.querySelectorAll('input[name="mode"]').forEach((input) => { input.disabled = active; });
   document.querySelectorAll('#command-options input').forEach((input) => { input.disabled = active; });
+  const canCheck = state.status === 'running';
+  const needsWriteApproval = canCheck && state.mode !== 'read-only';
+  writeCheckWarning.hidden = !needsWriteApproval;
+  confirmWriteCheck.disabled = !needsWriteApproval;
+  if (!needsWriteApproval) confirmWriteCheck.checked = false;
+  runMcpCheck.disabled = !canCheck || (needsWriteApproval && !confirmWriteCheck.checked);
 }
 
 function updateCommandOptions() {
@@ -66,6 +78,31 @@ start.addEventListener('click', async () => {
 stop.addEventListener('click', async () => {
   try { await window.workspaceGuard.stop(); }
   catch (error) { message.textContent = error instanceof Error ? error.message : 'Không thể dừng MCP server.'; }
+});
+
+confirmWriteCheck.addEventListener('change', () => {
+  if (!currentState) return;
+  render(currentState);
+});
+
+runMcpCheck.addEventListener('click', async () => {
+  runMcpCheck.disabled = true;
+  checkResults.replaceChildren(Object.assign(document.createElement('li'), { textContent: 'Đang gọi MCP client…' }));
+  try {
+    const result = await window.workspaceGuard.runMcpProbe();
+    checkResults.replaceChildren(...result.steps.map((step) => {
+      const item = document.createElement('li');
+      item.className = step.status;
+      item.textContent = `${step.status === 'passed' ? '✓' : step.status === 'skipped' ? '–' : '✕'} ${step.name}: ${step.detail}`;
+      return item;
+    }));
+  } catch (error) {
+    checkResults.replaceChildren(Object.assign(document.createElement('li'), {
+      className: 'failed', textContent: error instanceof Error ? error.message : 'Không thể chạy kiểm tra MCP.',
+    }));
+  } finally {
+    if (currentState) render(currentState);
+  }
 });
 
 window.workspaceGuard.onState(render);
