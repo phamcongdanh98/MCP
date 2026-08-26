@@ -7,6 +7,7 @@ const message = document.querySelector('#message');
 const logs = document.querySelector('#logs');
 const port = document.querySelector('#port');
 const commandOptions = document.querySelector('#command-options');
+const workspaceInput = document.querySelector('#workspace-input');
 
 let workspace = '';
 
@@ -24,6 +25,7 @@ function render(state) {
   start.disabled = active;
   stop.disabled = !active;
   chooseWorkspace.disabled = active;
+  workspaceInput.disabled = active;
   port.disabled = active;
   document.querySelectorAll('input[name="mode"]').forEach((input) => { input.disabled = active; });
   document.querySelectorAll('#command-options input').forEach((input) => { input.disabled = active; });
@@ -34,10 +36,20 @@ function updateCommandOptions() {
 }
 
 chooseWorkspace.addEventListener('click', async () => {
-  const selected = await window.workspaceGuard.chooseWorkspace();
-  if (!selected) return;
-  workspace = selected;
-  workspacePath.textContent = selected;
+  try {
+    const selected = await window.workspaceGuard.chooseWorkspace();
+    if (!selected) return;
+    workspace = selected;
+    workspaceInput.value = selected;
+    workspacePath.textContent = selected;
+  } catch (error) {
+    message.textContent = error instanceof Error ? error.message : 'Không mở được hộp chọn thư mục. Hãy dán đường dẫn ở ô bên dưới.';
+  }
+});
+
+workspaceInput.addEventListener('input', () => {
+  workspace = workspaceInput.value.trim();
+  workspacePath.textContent = workspace || 'Chưa chọn thư mục';
 });
 
 document.querySelectorAll('input[name="mode"]').forEach((input) => input.addEventListener('change', updateCommandOptions));

@@ -8,7 +8,7 @@ import { DesktopRuntimeController } from './runtime.js';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const rendererFile = path.join(directory, 'renderer', 'index.html');
-const preloadFile = path.join(directory, 'preload.js');
+const preloadFile = path.join(directory, 'preload.cjs');
 const serverEntry = path.join(directory, '..', 'index.js');
 const runtime = new DesktopRuntimeController({ serverEntry, environment: { ELECTRON_RUN_AS_NODE: '1' } });
 
@@ -43,6 +43,9 @@ function createWindow(): void {
     },
   });
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.webContents.on('console-message', (_event, _level, message) => {
+    console.error(`[workspaceguard renderer] ${message}`);
+  });
   void mainWindow.loadFile(rendererFile);
   mainWindow.on('closed', () => { mainWindow = null; });
 }
@@ -50,11 +53,17 @@ function createWindow(): void {
 runtime.on('state', sendState);
 
 ipcMain.handle('workspaceguard:choose-workspace', async () => {
-  const options = { properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
-  const result = mainWindow
-    ? await dialog.showOpenDialog(mainWindow, options)
-    : await dialog.showOpenDialog(options);
-  return result.canceled ? null : (result.filePaths[0] ?? null);
+  try {
+    mainWindow?.focus();
+    const options = { properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+  } catch (error) {
+    console.error('[workspaceguard] Folder picker failed:', error);
+    throw error;
+  }
 });
 ipcMain.handle('workspaceguard:get-state', () => runtime.snapshot());
 ipcMain.handle('workspaceguard:start', async (_event, settings: unknown) => {
